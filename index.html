@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Documentation portal for the CCOE Azure Landing Zone repository.">
+  <title>CCOE Azure Landing Zone | Documentation</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --navy: #0b1f33;
+      --blue: #0078d4;
+      --blue-dark: #005a9e;
+      --sky: #e8f3fb;
+      --ink: #17202a;
+      --muted: #5d6b78;
+      --line: #d9e2ea;
+      --surface: #ffffff;
+      --background: #f5f8fa;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--ink);
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      line-height: 1.5;
+    }
+
+    header {
+      background: linear-gradient(120deg, var(--navy), #103e68);
+      color: white;
+      padding: 4.5rem 1.5rem 4rem;
+    }
+
+    .wrap {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 .6rem;
+      color: #8ed0ff;
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(2.2rem, 5vw, 4rem);
+      line-height: 1.05;
+      letter-spacing: -.035em;
+    }
+
+    .lede {
+      max-width: 700px;
+      margin: 1.15rem 0 0;
+      color: #d6e9f8;
+      font-size: 1.1rem;
+    }
+
+    main { padding: 2.5rem 1.5rem 4rem; }
+
+    .toolbar {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      box-shadow: 0 8px 24px rgba(11, 31, 51, .06);
+    }
+
+    .search {
+      width: min(520px, 100%);
+      padding: .8rem 1rem;
+      border: 1px solid #aebbc7;
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    .search:focus {
+      outline: 3px solid rgba(0, 120, 212, .22);
+      border-color: var(--blue);
+    }
+
+    .repo-link {
+      flex: 0 0 auto;
+      color: var(--blue-dark);
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .repo-link:hover { text-decoration: underline; }
+
+    section { margin-top: 2.5rem; }
+
+    h2 {
+      margin: 0 0 1rem;
+      color: var(--navy);
+      font-size: 1.35rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: .85rem;
+    }
+
+    .document {
+      display: block;
+      min-height: 118px;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      color: inherit;
+      text-decoration: none;
+      transition: border-color .15s, box-shadow .15s, transform .15s;
+    }
+
+    .document:hover,
+    .document:focus-visible {
+      border-color: var(--blue);
+      box-shadow: 0 8px 20px rgba(0, 90, 158, .1);
+      transform: translateY(-2px);
+      outline: none;
+    }
+
+    .document strong {
+      display: block;
+      margin-bottom: .45rem;
+      line-height: 1.3;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-right: .45rem;
+      padding: .15rem .42rem;
+      border-radius: 4px;
+      background: var(--sky);
+      color: var(--blue-dark);
+      font-size: .7rem;
+      font-weight: 750;
+      letter-spacing: .04em;
+    }
+
+    .empty {
+      display: none;
+      padding: 2rem;
+      border: 1px dashed #aebbc7;
+      border-radius: 10px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    footer {
+      padding: 1.5rem;
+      background: var(--navy);
+      color: #bfd1df;
+      text-align: center;
+      font-size: .88rem;
+    }
+
+    @media (max-width: 640px) {
+      header { padding-top: 3.25rem; }
+      .toolbar { align-items: stretch; flex-direction: column; }
+      .repo-link { padding: .25rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <p class="eyebrow">Cloud Center of Excellence</p>
+      <h1>Azure Landing Zone Documentation</h1>
+      <p class="lede">Architecture, deployment, operations, standards, and service guidance for the CCOE Azure Landing Zone.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="toolbar">
+      <label style="width:100%">
+        <span style="position:absolute;clip:rect(0,0,0,0)">Search documentation</span>
+        <input id="search" class="search" type="search" placeholder="Search all documents…" autocomplete="off">
+      </label>
+      <a class="repo-link" href="https://github.com/CCOE-Azure/landingzone">View repository →</a>
+    </div>
+
+    <div id="catalog"></div>
+    <p id="empty" class="empty">No documents match your search.</p>
+  </main>
+
+  <footer>CCOE Azure · Landing Zone documentation portal</footer>
+
+  <script>
+    const base = "https://github.com/CCOE-Azure/landingzone/blob/main/";
+    const groups = {
+      "Start here": [
+        "README.md", "landingzone.md", "architecture.md", "architecture.pdf", "readme.pdf"
+      ],
+      "Guides and references": [
+        "docs/README.md",
+        "docs/AKS_AUTHENTICATION_KUBELOGIN.md",
+        "docs/AKS_BEGINNER_GUIDE.md",
+        "docs/APP_SERVICE_DEPLOYMENT_METHODS.md",
+        "docs/APP_SERVICE_PLAN_FUNCTION_APP_NOTES.md",
+        "docs/AUTOMATION_ARI.md",
+        "docs/AZURE_AI_SEARCH.md",
+        "docs/CURRENT_LANDINGZONE_RESOURCES.md",
+        "docs/DEPLOYMENT_METHODS.md",
+        "docs/GIT-EXTRAHEADER-RUNNER-ISSUE.md",
+        "docs/MODULES_INDEX.md",
+        "docs/MODULE_USAGE_AND_DEPENDENCIES.md",
+        "docs/PIPELINES_GUIDE.md",
+        "docs/PRIVATE_ENDPOINT_PRIVATE_DNS_LOOKUP_PATTERN.md",
+        "docs/REPO_MODULES_GUIDE.md",
+        "docs/ROOT_LEVEL_MODULES_GUIDE.md",
+        "docs/SHARED-RUNNER-HYGIENE-STANDARD.md",
+        "docs/TAGGING.md",
+        "docs/TERRAFORM_REFERENCE.md",
+        "docs/TERRAFORM_REFERENCE.pdf",
+        "docs/VALIDATION_SUMMARY.md",
+        "docs/VALIDATION_SUMMARY.pdf",
+        "docs/azure-ai-and-common-services-pricing.md",
+        "docs/azure-services-full-pricing-v2.md",
+        "docs/github-actions-config-comparison.md"
+      ],
+      "Standards and how-to": [
+        "references/index.md",
+        "references/code-standards.md",
+        "references/howto-create-a-new-resource.md",
+        "references/howto-destroy-a-resource.md",
+        "references/howto-pre-commit.md",
+        "references/naming-convention.md",
+        "references/naming-convention.pdf",
+        "references/pre-commit.md",
+        "references/pre-commit.pdf",
+        "references/tagging-convention.md",
+        "references/azure-devops-ci-cd-architecture.vsdx"
+      ]
+    };
+
+    const titleFor = path => path.split("/").pop()
+      .replace(/\.(md|pdf|vsdx)$/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, character => character.toUpperCase());
+
+    const catalog = document.querySelector("#catalog");
+    const empty = document.querySelector("#empty");
+
+    function render(query = "") {
+      const normalized = query.trim().toLowerCase();
+      catalog.replaceChildren();
+      let total = 0;
+
+      for (const [group, documents] of Object.entries(groups)) {
+        const matches = documents.filter(path =>
+          `${group} ${path} ${titleFor(path)}`.toLowerCase().includes(normalized)
+        );
+        if (!matches.length) continue;
+        total += matches.length;
+
+        const section = document.createElement("section");
+        const heading = document.createElement("h2");
+        heading.textContent = `${group} (${matches.length})`;
+        const grid = document.createElement("div");
+        grid.className = "grid";
+
+        for (const path of matches) {
+          const extension = path.split(".").pop().toUpperCase();
+          const link = document.createElement("a");
+          link.className = "document";
+          link.href = base + path.split("/").map(encodeURIComponent).join("/");
+          link.innerHTML = `<strong>${titleFor(path)}</strong><span class="meta"><span class="badge">${extension}</span>${path}</span>`;
+          grid.append(link);
+        }
+
+        section.append(heading, grid);
+        catalog.append(section);
+      }
+
+      empty.style.display = total ? "none" : "block";
+    }
+
+    document.querySelector("#search").addEventListener("input", event => render(event.target.value));
+    render();
+  </script>
+</body>
+</html>
