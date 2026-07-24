@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Documentation portal for the CCOE Azure Landing Zone repository.">
+  <title>CCOE Azure Landing Zone | Documentation</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js" defer></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --navy: #0b1f33;
+      --blue: #0078d4;
+      --blue-dark: #005a9e;
+      --sky: #e8f3fb;
+      --ink: #17202a;
+      --muted: #5d6b78;
+      --line: #d9e2ea;
+      --surface: #ffffff;
+      --background: #f5f8fa;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--ink);
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      line-height: 1.5;
+    }
+
+    header {
+      background: linear-gradient(120deg, var(--navy), #103e68);
+      color: white;
+      padding: 4.5rem 1.5rem 4rem;
+    }
+
+    .wrap {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 .6rem;
+      color: #8ed0ff;
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(2.2rem, 5vw, 4rem);
+      line-height: 1.05;
+      letter-spacing: -.035em;
+    }
+
+    .lede {
+      max-width: 700px;
+      margin: 1.15rem 0 0;
+      color: #d6e9f8;
+      font-size: 1.1rem;
+    }
+
+    main { padding: 2.5rem 1.5rem 4rem; }
+
+    .toolbar {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      box-shadow: 0 8px 24px rgba(11, 31, 51, .06);
+    }
+
+    .search {
+      width: min(520px, 100%);
+      padding: .8rem 1rem;
+      border: 1px solid #aebbc7;
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    .search:focus {
+      outline: 3px solid rgba(0, 120, 212, .22);
+      border-color: var(--blue);
+    }
+
+    .repo-link {
+      flex: 0 0 auto;
+      color: var(--blue-dark);
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .repo-link:hover { text-decoration: underline; }
+
+    section { margin-top: 2.5rem; }
+
+    h2 {
+      margin: 0 0 1rem;
+      color: var(--navy);
+      font-size: 1.35rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: .85rem;
+    }
+
+    .document {
+      display: block;
+      min-height: 118px;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      color: inherit;
+      text-decoration: none;
+      transition: border-color .15s, box-shadow .15s, transform .15s;
+    }
+
+    .document:hover,
+    .document:focus-visible {
+      border-color: var(--blue);
+      box-shadow: 0 8px 20px rgba(0, 90, 158, .1);
+      transform: translateY(-2px);
+      outline: none;
+    }
+
+    .document strong {
+      display: block;
+      margin-bottom: .45rem;
+      line-height: 1.3;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-right: .45rem;
+      padding: .15rem .42rem;
+      border-radius: 4px;
+      background: var(--sky);
+      color: var(--blue-dark);
+      font-size: .7rem;
+      font-weight: 750;
+      letter-spacing: .04em;
+    }
+
+    .empty {
+      display: none;
+      padding: 2rem;
+      border: 1px dashed #aebbc7;
+      border-radius: 10px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .reader[hidden],
+    .catalog-view[hidden] { display: none; }
+
+    .reader {
+      width: min(980px, 100%);
+      margin: 0 auto;
+    }
+
+    .reader-bar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      padding: .8rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .96);
+      box-shadow: 0 6px 20px rgba(11, 31, 51, .08);
+      backdrop-filter: blur(8px);
+    }
+
+    .back-button {
+      border: 0;
+      background: transparent;
+      color: var(--blue-dark);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+
+    .reader-path {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: .82rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .article {
+      padding: clamp(1.25rem, 4vw, 3.5rem);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      box-shadow: 0 12px 32px rgba(11, 31, 51, .07);
+    }
+
+    .article > :first-child { margin-top: 0; }
+    .article > :last-child { margin-bottom: 0; }
+
+    .article h1,
+    .article h2,
+    .article h3,
+    .article h4 {
+      margin: 1.8em 0 .65em;
+      color: var(--navy);
+      line-height: 1.2;
+      letter-spacing: -.015em;
+    }
+
+    .article h1 {
+      padding-bottom: .55rem;
+      border-bottom: 1px solid var(--line);
+      font-size: clamp(2rem, 5vw, 3rem);
+    }
+
+    .article h2 { font-size: 1.6rem; }
+    .article h3 { font-size: 1.25rem; }
+    .article p, .article li { color: #263747; }
+    .article a { color: var(--blue-dark); }
+    .article img { max-width: 100%; height: auto; border-radius: 8px; }
+
+    .article blockquote {
+      margin: 1.25rem 0;
+      padding: .15rem 1.1rem;
+      border-left: 4px solid var(--blue);
+      background: var(--sky);
+      color: #314b62;
+    }
+
+    .article code {
+      padding: .12em .35em;
+      border-radius: 4px;
+      background: #eef2f5;
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      font-size: .9em;
+    }
+
+    .article pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border-radius: 8px;
+      background: var(--navy);
+      color: #eaf4fb;
+    }
+
+    .article pre code { padding: 0; background: transparent; color: inherit; }
+
+    .article table {
+      display: block;
+      overflow-x: auto;
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .article th,
+    .article td {
+      padding: .65rem .8rem;
+      border: 1px solid var(--line);
+      text-align: left;
+    }
+
+    .article th { background: #eef5fa; }
+
+    .pdf-viewer {
+      width: 100%;
+      height: 78vh;
+      min-height: 560px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: white;
+    }
+
+    .file-panel {
+      padding: 4rem 2rem;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: white;
+      text-align: center;
+    }
+
+    .file-button {
+      display: inline-block;
+      margin-top: 1rem;
+      padding: .75rem 1rem;
+      border-radius: 7px;
+      background: var(--blue);
+      color: white;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .loading {
+      padding: 4rem 1rem;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    footer {
+      padding: 1.5rem;
+      background: var(--navy);
+      color: #bfd1df;
+      text-align: center;
+      font-size: .88rem;
+    }
+
+    @media (max-width: 640px) {
+      header { padding-top: 3.25rem; }
+      .toolbar { align-items: stretch; flex-direction: column; }
+      .repo-link { padding: .25rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <p class="eyebrow">Cloud Center of Excellence</p>
+      <h1>Azure Landing Zone Documentation</h1>
+      <p class="lede">Architecture, deployment, operations, standards, and service guidance for the CCOE Azure Landing Zone.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="catalog-view" class="catalog-view">
+      <div class="toolbar">
+        <label style="width:100%">
+          <span style="position:absolute;clip:rect(0,0,0,0)">Search documentation</span>
+          <input id="search" class="search" type="search" placeholder="Search all documents…" autocomplete="off">
+        </label>
+        <a class="repo-link" href="https://github.com/CCOE-Azure/landingzone">View repository →</a>
+      </div>
+
+      <div id="catalog"></div>
+      <p id="empty" class="empty">No documents match your search.</p>
+    </div>
+
+    <div id="reader" class="reader" hidden>
+      <div class="reader-bar">
+        <button id="back" class="back-button" type="button">← All documents</button>
+        <span id="reader-path" class="reader-path"></span>
+      </div>
+      <div id="reader-content" aria-live="polite"></div>
+    </div>
+  </main>
+
+  <footer>CCOE Azure · Landing Zone documentation portal</footer>
+
+  <script>
+    const groups = {
+      "Start here": [
+        "README.md", "landingzone.md", "architecture.md", "architecture.pdf", "readme.pdf"
+      ],
+      "Guides and references": [
+        "docs/README.md",
+        "docs/AKS_AUTHENTICATION_KUBELOGIN.md",
+        "docs/AKS_BEGINNER_GUIDE.md",
+        "docs/APP_SERVICE_DEPLOYMENT_METHODS.md",
+        "docs/APP_SERVICE_PLAN_FUNCTION_APP_NOTES.md",
+        "docs/AUTOMATION_ARI.md",
+        "docs/AZURE_AI_SEARCH.md",
+        "docs/CURRENT_LANDINGZONE_RESOURCES.md",
+        "docs/DEPLOYMENT_METHODS.md",
+        "docs/GIT-EXTRAHEADER-RUNNER-ISSUE.md",
+        "docs/MODULES_INDEX.md",
+        "docs/MODULE_USAGE_AND_DEPENDENCIES.md",
+        "docs/PIPELINES_GUIDE.md",
+        "docs/PRIVATE_ENDPOINT_PRIVATE_DNS_LOOKUP_PATTERN.md",
+        "docs/REPO_MODULES_GUIDE.md",
+        "docs/ROOT_LEVEL_MODULES_GUIDE.md",
+        "docs/SHARED-RUNNER-HYGIENE-STANDARD.md",
+        "docs/TAGGING.md",
+        "docs/TERRAFORM_REFERENCE.md",
+        "docs/TERRAFORM_REFERENCE.pdf",
+        "docs/VALIDATION_SUMMARY.md",
+        "docs/VALIDATION_SUMMARY.pdf",
+        "docs/azure-ai-and-common-services-pricing.md",
+        "docs/azure-services-full-pricing-v2.md",
+        "docs/github-actions-config-comparison.md"
+      ],
+      "Standards and how-to": [
+        "references/index.md",
+        "references/code-standards.md",
+        "references/howto-create-a-new-resource.md",
+        "references/howto-destroy-a-resource.md",
+        "references/howto-pre-commit.md",
+        "references/naming-convention.md",
+        "references/naming-convention.pdf",
+        "references/pre-commit.md",
+        "references/pre-commit.pdf",
+        "references/tagging-convention.md",
+        "references/azure-devops-ci-cd-architecture.vsdx"
+      ]
+    };
+
+    const titleFor = path => path.split("/").pop()
+      .replace(/\.(md|pdf|vsdx)$/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, character => character.toUpperCase());
+
+    const catalog = document.querySelector("#catalog");
+    const empty = document.querySelector("#empty");
+    const catalogView = document.querySelector("#catalog-view");
+    const reader = document.querySelector("#reader");
+    const readerContent = document.querySelector("#reader-content");
+    const readerPath = document.querySelector("#reader-path");
+    const allDocuments = Object.values(groups).flat();
+
+    function render(query = "") {
+      const normalized = query.trim().toLowerCase();
+      catalog.replaceChildren();
+      let total = 0;
+
+      for (const [group, documents] of Object.entries(groups)) {
+        const matches = documents.filter(path =>
+          `${group} ${path} ${titleFor(path)}`.toLowerCase().includes(normalized)
+        );
+        if (!matches.length) continue;
+        total += matches.length;
+
+        const section = document.createElement("section");
+        const heading = document.createElement("h2");
+        heading.textContent = `${group} (${matches.length})`;
+        const grid = document.createElement("div");
+        grid.className = "grid";
+
+        for (const path of matches) {
+          const extension = path.split(".").pop().toUpperCase();
+          const link = document.createElement("a");
+          link.className = "document";
+          link.href = `#doc=${encodeURIComponent(path)}`;
+          link.innerHTML = `<strong>${titleFor(path)}</strong><span class="meta"><span class="badge">${extension}</span>${path}</span>`;
+          grid.append(link);
+        }
+
+        section.append(heading, grid);
+        catalog.append(section);
+      }
+
+      empty.style.display = total ? "none" : "block";
+    }
+
+    function resolveDocumentLink(href, documentPath) {
+      if (!href || /^(https?:|mailto:|tel:|#)/i.test(href)) return href;
+      const directory = documentPath.includes("/") ? documentPath.slice(0, documentPath.lastIndexOf("/") + 1) : "";
+      const stack = (directory + href).split("/");
+      const resolved = [];
+      for (const part of stack) {
+        if (!part || part === ".") continue;
+        if (part === "..") resolved.pop();
+        else resolved.push(part);
+      }
+      return resolved.join("/");
+    }
+
+    function enhanceArticle(article, path) {
+      article.querySelectorAll("a[href]").forEach(link => {
+        const original = link.getAttribute("href");
+        if (/^(https?:|mailto:|tel:|#)/i.test(original)) {
+          if (/^https?:/i.test(original)) {
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+          }
+          return;
+        }
+        const resolved = resolveDocumentLink(original, path);
+        if (allDocuments.includes(resolved)) link.href = `#doc=${encodeURIComponent(resolved)}`;
+        else link.href = resolved;
+      });
+
+      article.querySelectorAll("img[src]").forEach(image => {
+        image.src = resolveDocumentLink(image.getAttribute("src"), path);
+        image.loading = "lazy";
+      });
+    }
+
+    async function openDocument(path) {
+      if (!allDocuments.includes(path)) {
+        location.hash = "";
+        return;
+      }
+
+      catalogView.hidden = true;
+      reader.hidden = false;
+      readerPath.textContent = path;
+      readerContent.innerHTML = '<p class="loading">Loading document…</p>';
+      window.scrollTo(0, 0);
+      const extension = path.split(".").pop().toLowerCase();
+
+      if (extension === "pdf") {
+        const iframe = document.createElement("iframe");
+        iframe.className = "pdf-viewer";
+        iframe.src = path;
+        iframe.title = titleFor(path);
+        readerContent.replaceChildren(iframe);
+        return;
+      }
+
+      if (extension === "vsdx") {
+        readerContent.innerHTML = `<div class="file-panel"><h2>${titleFor(path)}</h2><p>This Visio diagram can be downloaded and opened in Microsoft Visio.</p><a class="file-button" href="${path}" download>Download diagram</a></div>`;
+        return;
+      }
+
+      try {
+        const response = await fetch(path);
+        if (!response.ok) throw new Error(`Document returned ${response.status}`);
+        const markdown = await response.text();
+        const article = document.createElement("article");
+        article.className = "article";
+        article.innerHTML = DOMPurify.sanitize(marked.parse(markdown));
+        enhanceArticle(article, path);
+        readerContent.replaceChildren(article);
+        document.title = `${titleFor(path)} | CCOE Azure`;
+      } catch (error) {
+        readerContent.innerHTML = `<div class="file-panel"><h2>Unable to load this document</h2><p>${error.message}</p></div>`;
+      }
+    }
+
+    function route() {
+      const match = location.hash.match(/^#doc=(.+)$/);
+      if (match) {
+        openDocument(decodeURIComponent(match[1]));
+      } else {
+        reader.hidden = true;
+        catalogView.hidden = false;
+        readerContent.replaceChildren();
+        readerPath.textContent = "";
+        document.title = "CCOE Azure Landing Zone | Documentation";
+      }
+    }
+
+    document.querySelector("#back").addEventListener("click", () => {
+      location.hash = "";
+    });
+    document.querySelector("#search").addEventListener("input", event => render(event.target.value));
+    window.addEventListener("hashchange", route);
+    window.addEventListener("DOMContentLoaded", () => {
+      render();
+      route();
+    });
+  </script>
+</body>
+</html>
