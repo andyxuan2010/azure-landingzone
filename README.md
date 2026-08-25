@@ -257,3 +257,26 @@ Recommended reading order for most contributors:
 # Tagging
 
 Reusable modules follow the tagging contract in [docs/TAGGING.md](./docs/TAGGING.md). Root compositions own enterprise tag normalization and pass plan-known inherited tags through `inherited_resource_group_tags`; modules merge those tags with resource-specific `tags` without remapping `Environment` or `Workload`.
+
+## Pipeline and usage summary
+
+GitHub Actions runs static checks, backend-free validation, the root Terraform
+test, a branch-aware plan, and a focused module-plan matrix. Apply is gated on a
+reviewed plan and environment configuration. `azure-pipelines.yml` mirrors the
+validation and plan/apply flow for Azure DevOps, while the Pages workflow
+publishes the documentation site.
+
+For local use, select an environment backend, then run:
+
+```bash
+terraform fmt -check -recursive
+terraform init -input=false -reconfigure \
+  -backend-config="environments/<environment>/backend.hcl"
+terraform validate
+terraform test -filter=tests/root-plan.tftest.hcl
+terraform plan -input=false
+```
+
+Review module dependencies, identity permissions, network changes, and costs
+before any apply. Store Azure credentials only in the configured environment or
+CI secret store.
