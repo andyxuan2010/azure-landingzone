@@ -1,0 +1,503 @@
+Write-Output "PSVersion: $($PSVersionTable.PSVersion)"
+$ErrorActionPreference = "Stop"
+
+$TenantID        = "${tenant_id}"
+$StorageAccount  = "${storage_account_name}"
+$StorageContainer = "${storage_container}"
+$ReportDir       = "${report_dir}"
+$ReportName      = "${report_name}"
+$AriLiteMode                  = ${ari_lite_mode}
+$EnableDiagramFullEnvironment = ${ari_diagram_full_environment_enabled}
+$EnableSecurityCenter         = ${ari_security_center_enabled}
+
+$RunbookStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+function Write-StepLog {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Message
+  )
+
+  $elapsed = [math]::Round($RunbookStopwatch.Elapsed.TotalSeconds, 2)
+  Write-Output ("[{0}s] {1}" -f $elapsed, $Message)
+}
+
+function Initialize-AriAutomationCompatibility {
+  Write-StepLog "Applying Automation compatibility override for ARI inventory loop."
+  $ariModule = Get-Module -Name AzureResourceInventory
+
+  if (-not $ariModule) {
+    throw "AzureResourceInventory module is not loaded; compatibility override cannot be applied."
+  }
+
+  & $ariModule {
+    $script:AriStorageAccountName = $StorageAccount
+    $script:AriTenantId = $TenantID
+    Write-Output 'ARI compatibility shim entered module scope.'
+
+    function script:Merge-AriCollectionItems {
+      param(
+        [AllowNull()]
+        [object[]]$Collection,
+        [AllowNull()]
+        [object]$Items,
+        [string]$Label = "collection"
+      )
+
+      $safeCollection = @($Collection)
+      $safeItems = @($Items)
+
+      $merged = New-Object System.Collections.ArrayList
+      foreach ($entry in $safeCollection) {
+        [void]$merged.Add($entry)
+      }
+      foreach ($entry in $safeItems) {
+        [void]$merged.Add($entry)
+      }
+
+      Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + ('Merged {0} existing item(s) with {1} new item(s) for {2}.' -f $safeCollection.Count, $safeItems.Count, $Label))
+      return @($merged.ToArray())
+    }
+
+    function script:Set-AzStorageBlobContent {
+      [CmdletBinding(DefaultParameterSetName = 'UploadBlob')]
+      param(
+        [Parameter(ValueFromPipeline = $true)]
+        $InputObject,
+        [string]$File,
+        [string]$Container,
+        [string]$Blob,
+        [string]$BlobType,
+        [string]$StandardBlobTier,
+        [switch]$Force,
+        [Nullable[int]]$ServerTimeoutPerRequest,
+        [Nullable[int]]$ConcurrentTaskCount,
+        [hashtable]$Tag,
+        [switch]$CheckMd5,
+        [hashtable]$Properties,
+        [hashtable]$Metadata,
+        [string]$EncryptionScope,
+        $Context
+      )
+
+      Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - Refreshing managed identity storage context before blob upload.')
+
+      try {
+        Connect-AzAccount -Identity -Tenant $script:AriTenantId -ErrorAction Stop | Out-Null
+      }
+      catch {
+        Connect-AzAccount -Identity -ErrorAction Stop | Out-Null
+      }
+
+      $freshContext = New-AzStorageContext -StorageAccountName $script:AriStorageAccountName -UseConnectedAccount -ErrorAction Stop
+
+      $forward = @{}
+      foreach ($key in $PSBoundParameters.Keys) {
+        if ($key -ne 'Context' -and $null -ne $PSBoundParameters[$key]) {
+          $forward[$key] = $PSBoundParameters[$key]
+        }
+      }
+
+      $forward['Context'] = $freshContext
+
+      Az.Storage\Set-AzStorageBlobContent @forward
+    }
+
+    function script:Invoke-ARIInventoryLoop {
+      param($GraphQuery, $FSubscri, $LoopName)
+
+      Write-Progress -Id 1 -activity 'Azure Inventory' -Status "1% Complete." -PercentComplete 1 -CurrentOperation ('Extracting: ' + $LoopName)
+      $ReportCounter = 1
+      $LocalResults = @()
+
+      if ($FSubscri.count -gt 200) {
+        $SubLoop = $FSubscri.count / 200
+        $SubLooper = 0
+        $NStart = 0
+        $NEnd = 200
+
+        while ($SubLooper -lt $SubLoop) {
+          $Sub = $FSubscri[$NStart..$NEnd]
+
+          try {
+            Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting First 1000 ' + $LoopName)
+            $QueryResult = Search-AzGraph -Query $GraphQuery -First 1000 -Subscription $Sub -Debug:$false
+          }
+          catch {
+            Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting First 200 ' + $LoopName)
+            $QueryResult = Search-AzGraph -Query $GraphQuery -First 200 -Subscription $Sub -Debug:$false
+          }
+
+          $LocalResults += @($QueryResult)
+
+          while ($QueryResult.SkipToken) {
+            $ReportCounterVar = [string]$ReportCounter
+
+            try {
+              Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting Next 1000 ' + $LoopName + '. Loop Number: ' + $ReportCounterVar)
+              Write-Progress -Id 1 -activity ('Extracting: ' + $LoopName) -Status "$ReportCounter% Complete." -PercentComplete $ReportCounter
+              $QueryResult = Search-AzGraph -Query $GraphQuery -SkipToken $QueryResult.SkipToken -Subscription $Sub -First 1000 -Debug:$false
+            }
+            catch {
+              Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting Next 200 ' + $LoopName + '. Loop Number: ' + $ReportCounterVar)
+              Write-Progress -Id 1 -activity ('Extracting: ' + $LoopName) -Status "$ReportCounter% Complete." -PercentComplete $ReportCounter
+              $QueryResult = Search-AzGraph -Query $GraphQuery -SkipToken $QueryResult.SkipToken -Subscription $Sub -First 200 -Debug:$false
+            }
+
+            $LocalResults += @($QueryResult)
+          }
+
+          $NStart = $NStart + 200
+          $NEnd = $NEnd + 200
+          $SubLooper++
+          $ReportCounter++
+        }
+      }
+      else {
+        try {
+          Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting First 1000 ' + $LoopName)
+          $QueryResult = Search-AzGraph -Query $GraphQuery -First 1000 -Subscription $FSubscri -Debug:$false
+        }
+        catch {
+          Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting First 200 ' + $LoopName)
+          $QueryResult = Search-AzGraph -Query $GraphQuery -First 200 -Subscription $FSubscri -Debug:$false
+        }
+
+        $LocalResults += @($QueryResult)
+
+        while ($QueryResult.SkipToken) {
+          $ReportCounterVar = [string]$ReportCounter
+
+          try {
+            Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting Next 1000 ' + $LoopName + '. Loop Number: ' + $ReportCounterVar)
+            Write-Progress -Id 1 -activity ('Extracting: ' + $LoopName) -Status "$ReportCounter% Complete." -PercentComplete $ReportCounter
+            $QueryResult = Search-AzGraph -Query $GraphQuery -SkipToken $QueryResult.SkipToken -Subscription $FSubscri -First 1000 -Debug:$false
+          }
+          catch {
+            Write-Debug ((Get-Date -Format 'yyyy-MM-dd_HH_mm_ss') + ' - ' + 'Extracting Next 200 ' + $LoopName + '. Loop Number: ' + $ReportCounterVar)
+            Write-Progress -Id 1 -activity ('Extracting: ' + $LoopName) -Status "$ReportCounter% Complete." -PercentComplete $ReportCounter
+            $QueryResult = Search-AzGraph -Query $GraphQuery -SkipToken $QueryResult.SkipToken -Subscription $FSubscri -First 200 -Debug:$false
+          }
+
+          $LocalResults += @($QueryResult)
+          $ReportCounter++
+        }
+      }
+
+      Write-Progress -Id 1 -activity ('Extracting: ' + $LoopName) -Status "100% Complete." -Completed
+      return @($LocalResults)
+    }
+    Set-Item -Path Function:\Invoke-ARIInventoryLoop -Value $${function:script:Invoke-ARIInventoryLoop}
+
+    function script:Start-ARIGraphExtraction {
+      Param($ManagementGroup, $Subscriptions, $SubscriptionID, $ResourceGroup, $SecurityCenter, $SkipAdvisory, $IncludeTags, $TagKey, $TagValue, $AzureEnvironment)
+      Write-Output 'Using overridden Start-ARIGraphExtraction.'
+
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Starting Extractor function')
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Powershell Edition: ' + ([string]$psversiontable.psEdition))
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Powershell Version: ' + ([string]$psversiontable.psVersion))
+
+      $Resources = @()
+      $ResourceContainers = @()
+      $Advisories = @()
+      $Security = @()
+
+      if ($IncludeTags.IsPresent) {
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Tags will be included")
+        $GraphQueryTags = ",tags "
+      } else {
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+"Tags will be ignored")
+        $GraphQueryTags = ""
+      }
+
+      Write-Progress -activity 'Azure Inventory' -Status "2% Complete." -PercentComplete 2 -CurrentOperation 'Discovering Subscriptions..'
+
+      if (![string]::IsNullOrEmpty($ManagementGroup)) {
+        $Subscriptions = Get-ARIManagementGroups -ManagementGroup $ManagementGroup -Subscriptions $Subscriptions
+      }
+
+      $SubCount = [string]$Subscriptions.id.count
+
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Number of Subscriptions Found: ' + $SubCount)
+      Write-Progress -activity 'Azure Inventory' -Status "3% Complete." -PercentComplete 3 -CurrentOperation "$SubCount Subscriptions found.."
+      Write-Progress -activity 'Azure Inventory' -Status "4% Complete." -PercentComplete 4 -CurrentOperation "Starting Resources extraction jobs.."
+
+      if(![string]::IsNullOrEmpty($ResourceGroup) -and [string]::IsNullOrEmpty($SubscriptionID)) {
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Resource Group Name present, but missing Subscription ID.')
+        Write-Output ''
+        Write-Output 'If Using the -ResourceGroup Parameter, the Subscription ID must be informed'
+        Write-Output ''
+        Exit
+      }
+      else {
+        $Subscri = $Subscriptions.id
+        $RGQueryExtension = ''
+        $TagQueryExtension = ''
+        $MGQueryExtension = ''
+        if(![string]::IsNullOrEmpty($ResourceGroup) -and ![string]::IsNullOrEmpty($SubscriptionID)) {
+          $RGQueryExtension = "| where resourceGroup in~ ('$([String]::Join("','",$ResourceGroup))')"
+        }
+        elseif(![string]::IsNullOrEmpty($TagKey) -or ![string]::IsNullOrEmpty($TagValue)) {
+          $TagQueryExtension = "| where isnotempty(tags) | mvexpand tags | extend tagKey = tostring(bag_keys(tags)[0]) | extend tagValue = tostring(tags[tagKey]) "
+
+          if (![string]::IsNullOrEmpty($TagKey)) {
+            $TagQueryExtension = $TagQueryExtension + "| where tagKey =~ '$TagKey'"
+          }
+
+          if (![string]::IsNullOrEmpty($TagValue)) {
+            $TagQueryExtension = $TagQueryExtension + " and tagValue =~ '$TagValue'"
+          }
+        }
+        elseif (![string]::IsNullOrEmpty($ManagementGroup)) {
+          $MGQueryExtension = "| join kind=inner (resourcecontainers | where type == 'microsoft.resources/subscriptions' | mv-expand managementGroupParent = properties.managementGroupAncestorsChain | where managementGroupParent.name =~ '$ManagementGroup' | project subscriptionId, managanagementGroup = managementGroupParent.name) on subscriptionId"
+          $MGContainerExtension = "| mv-expand managementGroupParent = properties.managementGroupAncestorsChain | where managementGroupParent.name =~ '$ManagementGroup'"
+        }
+      }
+
+      $ExcludedTypes = "| where type !in ('microsoft.logic/workflows','microsoft.portal/dashboards','microsoft.resources/templatespecs/versions','microsoft.resources/templatespecs')"
+
+      $GraphQuery = "resources $RGQueryExtension $TagQueryExtension $MGQueryExtension $ExcludedTypes | project id,name,type,tenantId,kind,location,resourceGroup,subscriptionId,managedBy,sku,plan,properties,identity,zones,extendedLocation$($GraphQueryTags) | order by id asc"
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Resources')
+      $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items (Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'Resources') -Label 'Resources'
+
+      $GraphQuery = "networkresources $RGQueryExtension $TagQueryExtension $MGQueryExtension | project id,name,type,tenantId,kind,location,resourceGroup,subscriptionId,managedBy,sku,plan,properties,identity,zones,extendedLocation$($GraphQueryTags) | order by id asc"
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Network Resources')
+      $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items (Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'Network Resources') -Label 'Resources after Network Resources'
+
+      if ($AzureEnvironment -ne 'AzureUSGovernment') {
+        $GraphQuery = "SupportResources $RGQueryExtension $TagQueryExtension $MGQueryExtension | project id,name,type,tenantId,kind,location,resourceGroup,subscriptionId,managedBy,sku,plan,properties,identity,zones,extendedLocation$($GraphQueryTags) | order by id asc"
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Support Tickets')
+        $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items (Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'SupportTickets') -Label 'Resources after Support Tickets'
+      }
+
+      $GraphQuery = "recoveryservicesresources $RGQueryExtension $TagQueryExtension | where type =~ 'microsoft.recoveryservices/vaults/backupfabrics/protectioncontainers/protecteditems' or type =~ 'microsoft.recoveryservices/vaults/backuppolicies' $MGQueryExtension  | project id,name,type,tenantId,kind,location,resourceGroup,subscriptionId,managedBy,sku,plan,properties,identity,zones,extendedLocation$($GraphQueryTags) | order by id asc"
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Backup Resources')
+      $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items (Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'Backup Items') -Label 'Resources after Backup Items'
+
+      $GraphQuery = "desktopvirtualizationresources $RGQueryExtension $MGQueryExtension| project id,name,type,tenantId,kind,location,resourceGroup,subscriptionId,managedBy,sku,plan,properties,identity,zones,extendedLocation$($GraphQueryTags) | order by id asc"
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for AVD Resources')
+      $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items (Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'Virtual Desktop') -Label 'Resources after Virtual Desktop'
+
+      $GraphQuery = "resourcecontainers $RGQueryExtension $TagQueryExtension $MGContainerExtension | project id,name,type,tenantId,kind,location,resourceGroup,subscriptionId,managedBy,sku,plan,properties,identity,zones,extendedLocation$($GraphQueryTags) | order by id asc"
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Resource Containers')
+      $ResourceContainers = @(Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'Subscriptions and Resource Groups')
+
+      $ContainerCount = $ResourceContainers.count
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Number of Resource Containers: '+ $ContainerCount)
+
+      if (!($SkipAdvisory.IsPresent)) {
+        $GraphQuery = "advisorresources $RGQueryExtension $MGQueryExtension | where properties.impact in~ ('Medium','High') | order by id asc"
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Advisories')
+        $Advisories = script:Merge-AriCollectionItems -Collection $Advisories -Items (Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'Advisories') -Label 'Advisories'
+        $AdvisorCount = $Advisories.count
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Number of Advisors: '+ $AdvisorCount)
+      }
+
+      if ($SecurityCenter.IsPresent) {
+        $GraphQuery = "securityresources $RGQueryExtension | where type =~ 'microsoft.security/assessments' and properties['status']['code'] == 'Unhealthy' $MGQueryExtension | order by id asc"
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Security Resources')
+        $Security = script:Merge-AriCollectionItems -Collection $Security -Items (Invoke-ARIInventoryLoop -GraphQuery $GraphQuery -FSubscri $Subscri -LoopName 'Security Center') -Label 'Security'
+        $SecurityCount = $Security.count
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Number of Security Center Advisors: '+ $SecurityCount)
+      }
+
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Invoking Inventory Loop for Retirements')
+      $moduleBasePath = (Get-Module -Name AzureResourceInventory).ModuleBase
+      if ([string]::IsNullOrWhiteSpace($moduleBasePath)) {
+        throw 'AzureResourceInventory module base path could not be determined inside Start-ARIGraphExtraction.'
+      }
+
+      $RetirementPath = Join-Path $moduleBasePath 'modules\Private\3.ReportingFunctions\StyleFunctions\Retirement.kql'
+      $RetirementQuery = Get-Content -Path $RetirementPath | Out-String
+      $ResourceRetirements = @(Invoke-ARIInventoryLoop -GraphQuery $RetirementQuery -FSubscri $Subscri -LoopName 'Retirements')
+      $RetirementCount = $ResourceRetirements.count
+      Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Number of Retirements: '+ $RetirementCount)
+      Write-Progress -activity 'Azure Inventory' -PercentComplete 10
+
+      $tmp = [PSCustomObject]@{
+        Resources          = @($Resources)
+        ResourceContainers = @($ResourceContainers)
+        Advisories         = @($Advisories)
+        Security           = @($Security)
+        Retirements        = @($ResourceRetirements)
+      }
+      return $tmp
+    }
+    Set-Item -Path Function:\Start-ARIGraphExtraction -Value $${function:script:Start-ARIGraphExtraction}
+
+    function script:Start-ARIExtractionOrchestration {
+      Param($ManagementGroup, $Subscriptions, $SubscriptionID, $SkipPolicy, $ResourceGroup, $SecurityCenter, $SkipAdvisory, $IncludeTags, $TagKey, $TagValue, $SkipAPIs, $SkipVMDetails, $IncludeCosts, $Automation, $AzureEnvironment)
+      Write-Output 'Using overridden Start-ARIExtractionOrchestration.'
+
+      $GraphData = Start-ARIGraphExtraction -ManagementGroup $ManagementGroup -Subscriptions $Subscriptions -SubscriptionID $SubscriptionID -ResourceGroup $ResourceGroup -SecurityCenter $SecurityCenter -SkipAdvisory $SkipAdvisory -IncludeTags $IncludeTags -TagKey $TagKey -TagValue $TagValue -AzureEnvironment $AzureEnvironment
+
+      $Resources = @($GraphData.Resources)
+      $ResourceContainers = @($GraphData.ResourceContainers)
+      $Advisories = @($GraphData.Advisories)
+      $Security = @($GraphData.Security)
+      $Retirements = @($GraphData.Retirements)
+
+      Remove-Variable -Name GraphData -ErrorAction SilentlyContinue
+
+      $ResourcesCount = [string]$Resources.Count
+      $AdvisoryCount = [string]$Advisories.Count
+      $SecCenterCount = [string]$Security.Count
+
+      if(!$SkipAPIs.IsPresent)
+      {
+        Write-Progress -activity 'Azure Inventory' -Status "12% Complete." -PercentComplete 12 -CurrentOperation "Starting API Extraction.."
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'Getting API Resources.')
+        $APIResults = Get-ARIAPIResources -Subscriptions $Subscriptions -AzureEnvironment $AzureEnvironment -SkipPolicy $SkipPolicy
+        $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items $APIResults.ResourceHealth -Label 'Resources after ResourceHealth'
+        $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items $APIResults.ManagedIdentities -Label 'Resources after ManagedIdentities'
+        $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items $APIResults.AdvisorScore -Label 'Resources after AdvisorScore'
+        $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items $APIResults.ReservationRecomen -Label 'Resources after ReservationRecommendations'
+        $PolicyAssign = $APIResults.PolicyAssign
+        $PolicyDef = $APIResults.PolicyDef
+        $PolicySetDef = $APIResults.PolicySetDef
+        Write-Debug ((get-date -Format 'yyyy-MM-dd_HH_mm_ss')+' - '+'API Resource Inventory Finished.')
+        Remove-Variable APIResults -ErrorAction SilentlyContinue
+      }
+
+      $PolicyCount = [string]$PolicyAssign.policyAssignments.Count
+
+      if ($IncludeCosts.IsPresent) {
+        $Costs = Get-ARICostInventory -Subscriptions $Subscriptions -Days 60 -Granularity 'Monthly'
+      }
+
+      if (!$SkipVMDetails.IsPresent)
+      {
+        Write-Host 'Gathering VM Extra Details: ' -NoNewline
+        Write-Host 'Quotas' -ForegroundColor Cyan
+        Write-Progress -activity 'Azure Inventory' -Status "13% Complete." -PercentComplete 13 -CurrentOperation "Starting VM Details Extraction.."
+
+        $VMQuotas = Get-AriVMQuotas -Subscriptions $Subscriptions -Resources $Resources
+        $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items $VMQuotas -Label 'Resources after VMQuotas'
+        Remove-Variable -Name VMQuotas -ErrorAction SilentlyContinue
+
+        Write-Host 'Gathering VM Extra Details: ' -NoNewline
+        Write-Host 'Size SKU' -ForegroundColor Cyan
+
+        $VMSkuDetails = Get-ARIVMSkuDetails -Resources $Resources
+        $Resources = script:Merge-AriCollectionItems -Collection $Resources -Items $VMSkuDetails -Label 'Resources after VMSkuDetails'
+        Remove-Variable -Name VMSkuDetails -ErrorAction SilentlyContinue
+      }
+
+      $ReturnData = [PSCustomObject]@{
+        Resources = @($Resources)
+        Quotas = $VMQuotas
+        Costs = $Costs
+        ResourceContainers = @($ResourceContainers)
+        Advisories = @($Advisories)
+        ResourcesCount = $ResourcesCount
+        AdvisoryCount = $AdvisoryCount
+        SecCenterCount = $SecCenterCount
+        Security = @($Security)
+        Retirements = @($Retirements)
+        PolicyCount = $PolicyCount
+        PolicyAssign = $PolicyAssign
+        PolicyDef = $PolicyDef
+        PolicySetDef = $PolicySetDef
+      }
+
+      return $ReturnData
+    }
+    Set-Item -Path Function:\Start-ARIExtractionOrchestration -Value $${function:script:Start-ARIExtractionOrchestration}
+  }
+}
+
+try {
+  Write-StepLog "Starting Azure Resource Inventory runbook."
+  Write-StepLog "Report name: $ReportName"
+  Write-StepLog "Storage target: $StorageAccount/$StorageContainer"
+  Write-StepLog ("ARI options: Lite={0}, DiagramFullEnvironment={1}, SecurityCenter={2}" -f $AriLiteMode, $EnableDiagramFullEnvironment, $EnableSecurityCenter)
+
+  $moduleStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  Write-StepLog "Importing PowerShell modules."
+
+  Import-Module Az.Accounts
+  Import-Module Az.Compute
+  Import-Module Az.Storage
+  Import-Module Az.ResourceGraph
+  Import-Module Az.CostManagement
+  Import-Module ImportExcel
+  Import-Module Microsoft.PowerShell.ThreadJob
+  Import-Module AzureResourceInventory
+
+  $moduleStopwatch.Stop()
+  Write-StepLog ("Module import completed in {0}s." -f [math]::Round($moduleStopwatch.Elapsed.TotalSeconds, 2))
+  Write-StepLog "PowerShell modules imported successfully."
+  Initialize-AriAutomationCompatibility
+
+  if (-not (Test-Path -LiteralPath $ReportDir)) {
+    Write-StepLog "Creating report directory at $ReportDir."
+    New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null
+  } else {
+    Write-StepLog "Report directory already exists."
+  }
+
+  $ariStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  Write-StepLog "Starting Invoke-ARI."
+
+  $invokeAriArguments = @{
+    TenantID         = $TenantID
+    Automation       = $true
+    StorageAccount   = $StorageAccount
+    StorageContainer = $StorageContainer
+    Debug            = $true
+    ReportName       = $ReportName
+    ReportDir        = $ReportDir
+  }
+
+  if ($AriLiteMode) {
+    $invokeAriArguments["Lite"] = $true
+    Write-StepLog "ARI Lite mode is enabled."
+  }
+
+  if ($EnableDiagramFullEnvironment) {
+    $invokeAriArguments["DiagramFullEnvironment"] = $true
+  } else {
+    Write-StepLog "DiagramFullEnvironment is disabled."
+  }
+
+  if ($EnableSecurityCenter) {
+    $invokeAriArguments["SecurityCenter"] = $true
+  } else {
+    Write-StepLog "SecurityCenter is disabled."
+  }
+
+  Write-StepLog "Invoking Azure Resource Inventory collection."
+  Invoke-ARI @invokeAriArguments
+
+  $ariStopwatch.Stop()
+  Write-StepLog ("Invoke-ARI completed in {0}s." -f [math]::Round($ariStopwatch.Elapsed.TotalSeconds, 2))
+
+  Write-StepLog "Scanning report directory for generated artifacts."
+  $latestArtifacts = Get-ChildItem -Path $ReportDir -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 5 -Property Name, Length, LastWriteTime
+
+  if ($latestArtifacts) {
+    $artifactSummary = $latestArtifacts | ForEach-Object { "{0} ({1} bytes)" -f $_.Name, $_.Length }
+    Write-StepLog ("Latest report artifacts: {0}" -f ($artifactSummary -join ", "))
+    Write-StepLog ("Artifact count found: {0}" -f $latestArtifacts.Count)
+  } else {
+    Write-StepLog "No report artifacts were found in the report directory after Invoke-ARI completed."
+  }
+
+  Write-StepLog "Azure Resource Inventory runbook completed successfully."
+}
+catch {
+  Write-Error ("ARI runbook failed after {0}s: {1}" -f [math]::Round($RunbookStopwatch.Elapsed.TotalSeconds, 2), $_.Exception.Message)
+  Write-Error $_.ScriptStackTrace
+
+  if ($_.Exception.InnerException) {
+    Write-Error ("Inner exception: {0}" -f $_.Exception.InnerException.Message)
+  }
+
+  throw
+}
+finally {
+  $RunbookStopwatch.Stop()
+  Write-Output ("Total ARI runbook duration: {0}s" -f [math]::Round($RunbookStopwatch.Elapsed.TotalSeconds, 2))
+}
