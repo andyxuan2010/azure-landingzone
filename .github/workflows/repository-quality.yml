@@ -1,0 +1,32 @@
+name: Repository quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate scripts, documentation links, and static sites
+        shell: pwsh
+        run: ./scripts/Test-Repository.ps1 -SkipTerraform
+      - name: Build and validate documentation portal
+        shell: pwsh
+        run: |
+          ./scripts/Build-DocsSite.ps1
+          ./scripts/Test-DocsSite.ps1
