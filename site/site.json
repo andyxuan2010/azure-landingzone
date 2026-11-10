@@ -1,0 +1,6 @@
+{
+  "title": "Azure Landing Zone",
+  "description": "Terraform composition and operational guidance for the CCOE Azure landing zone.",
+  "eyebrow": "Cloud foundations · Azure infrastructure as code",
+  "repository": "https://github.com/CCOE-Azure/azure-landingzone"
+}

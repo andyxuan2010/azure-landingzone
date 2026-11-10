@@ -1,0 +1,79 @@
+name: Deploy Dev Static Web Apps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "static-web-apps/**"
+      - "scripts/validate-static-sites.mjs"
+      - ".github/workflows/static-web-apps.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-static-web-apps
+  cancel-in-progress: true
+
+jobs:
+  validate-site-content:
+    name: Validate Static Web App content
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Validate static site references and security headers
+        run: node scripts/validate-static-sites.mjs
+
+      - name: Verify site folders and entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -d "static-web-apps" ]]; then
+            echo "Required folder is missing: static-web-apps/" >&2
+            exit 1
+          fi
+
+          site_paths=(
+            "static-web-apps/north-peak-cloud"
+          )
+
+          for site_path in "${site_paths[@]}"; do
+            if [[ ! -d "${site_path}" ]]; then
+              echo "Required site folder is missing: ${site_path}" >&2
+              exit 1
+            fi
+
+            if [[ ! -f "${site_path}/index.html" ]]; then
+              echo "Required site entry point is missing: ${site_path}/index.html" >&2
+              exit 1
+            fi
+          done
+
+  deploy-primary:
+    name: Deploy demo-platform-cc-dev
+    needs: validate-site-content
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/main'
+    environment: dev
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Deploy primary Static Web App
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.SWA_PRIMARY_TOKEN }}
+          action: upload
+          app_location: static-web-apps/north-peak-cloud
+          skip_app_build: true
