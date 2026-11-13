@@ -1,0 +1,64 @@
+parameters:
+  azureSubscription: ''
+  backendAzureSubscription: ''
+  workingDirectory: '$(Pipeline.Workspace)/landingzone'
+
+steps:
+  - checkout: self
+    clean: true
+    persistCredentials: false
+    path: landingzone
+
+  - checkout: terraform_templates
+    clean: true
+    persistCredentials: false
+    path: terraform_templates
+
+  - bash: |
+      set -euo pipefail
+      bash "${{ parameters.workingDirectory }}/scripts/azure-pipelines/install-terraform.sh" "${TERRAFORM_VERSION}"
+    displayName: Install verified Terraform archive
+    env:
+      TERRAFORM_VERSION: $(terraformVersion)
+
+  - task: AzureCLI@2
+    displayName: "Terraform Init"
+    inputs:
+      azureSubscription: ${{ parameters.backendAzureSubscription }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      workingDirectory: ${{ parameters.workingDirectory }}
+      addSpnToEnvironment: true
+      inlineScript: |
+        set -euo pipefail
+        source "${{ parameters.workingDirectory }}/scripts/azure-pipelines/terraform-common.sh"
+        configure_module_source_for_environment
+        configure_arm_auth
+        backend_subscription_id="$(az account show --query id -o tsv)"
+
+        echo "Ensuring backend container '$(backendContainerName)' exists in storage account '$(backendStorageAccountName)'"
+        az storage container create \
+          --name "$(backendContainerName)" \
+          --account-name "$(backendStorageAccountName)" \
+          --auth-mode login \
+          --only-show-errors \
+          --output none
+
+        terraform init \
+          -input=false \
+          -lockfile=readonly \
+          -no-color \
+          -var-file="$(TERRAFORM_VAR_FILE)" \
+          -backend-config="resource_group_name=$(backendResourceGroupName)" \
+          -backend-config="storage_account_name=$(backendStorageAccountName)" \
+          -backend-config="container_name=$(backendContainerName)" \
+          -backend-config="key=$(Build.Repository.Name)/terraform.tfstate" \
+          -backend-config="subscription_id=$backend_subscription_id" \
+          -backend-config="tenant_id=$ARM_TENANT_ID"
+    env:
+      ADO_RUNNER_PAT: $(ADO_RUNNER_PAT)
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      GIT_CONFIG_GLOBAL: $(RUNNER_JOB_GIT_CONFIG)
+      HOME: $(RUNNER_JOB_HOME)
+      TF_VAR_module_repository: $(TF_VAR_module_repository)
+      TF_VAR_module_ref: $(TF_VAR_module_ref)
